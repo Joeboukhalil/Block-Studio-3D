@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Block Studio 3D</title>
+<style>
+body { margin: 0; overflow: hidden; background: #222; }
+#ui {
+  position: absolute; top: 60px; left: 10px; z-index: 10;
+  background: rgba(255,255,255,0.9); padding: 10px; border-radius: 8px;
+}
+button { margin: 5px; padding: 5px 10px; }
+
+/* Centered top button container */
+.top-center {
+  position: absolute;
+  top: 15px; /* distance from the top */
+  left: 50%;
+  transform: translateX(-50%); /* keep centered */
+  z-index: 1000;
+}
+
+.back-btn {
+  background: linear-gradient(135deg, #ff7b54, #ff3c3c);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  transition: all 0.2s ease;
+}
+.back-btn:hover {
+  background: linear-gradient(135deg, #ff9c7a, #ff5555);
+  transform: scale(1.05); /* only scale */
+}
+.back-btn:active {
+  transform: scale(0.95);
+}
+</style>
+</head>
+<body>
+
+<!-- Back button container -->
+<div class="top-center">
+  <button class="back-btn" onclick="window.location.href='../index.html'">
+    ⬅ Back to Main Page
+  </button>
+</div>
+
+<!-- UI controls -->
+<div id="ui">
+  <h3>Block Studio 3D</h3>
+  <p>A simple 3D builder for stacking cubes</p>
+  <button id="undo">Undo Last Cube</button>
+  <button id="delete">Delete Selected Cube</button>
+  <button id="export">Export Model</button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const cubes = [];
+const gridSize = 50;
+const cubeSize = gridSize;
+let angleX = -0.5, angleY = -0.5;
+let cameraDist = 600;
+let offsetX = 0, offsetY = 0; 
+let isRotating = false, lastMouse = {x:0,y:0};
+let selectedCube = null;
+
+// Rotate 3D point
+function rotate(x,y,z){
+  let cosY = Math.cos(angleY), sinY = Math.sin(angleY);
+  let dx = x*cosY - z*sinY;
+  let dz = x*sinY + z*cosY;
+  x = dx; z = dz;
+
+  let cosX = Math.cos(angleX), sinX = Math.sin(angleX);
+  let dy = y*cosX - z*sinX;
+  z = y*sinX + z*cosX;
+  y = dy;
+
+  return {x,y,z};
+}
+
+// Project 3D to 2D
+function project(v){
+  let scale = cameraDist / (cameraDist - v.z);
+  return { x: canvas.width/2 + (v.x+offsetX)*scale, y: canvas.height/2 - (v.y+offsetY)*scale };
+}
+
+// Draw cube
+function drawCube(c){
+  const s = cubeSize/2;
+  const vertices = [
+    {x:c.x-s, y:c.y-s, z:c.z-s}, {x:c.x+s, y:c.y-s, z:c.z-s},
+    {x:c.x+s, y:c.y+s, z:c.z-s}, {x:c.x-s, y:c.y+s, z:c.z-s},
+    {x:c.x-s, y:c.y-s, z:c.z+s}, {x:c.x+s, y:c.y-s, z:c.z+s},
+    {x:c.x+s, y:c.y+s, z:c.z+s}, {x:c.x-s, y:c.y+s, z:c.z+s},
+  ];
+
+  const proj = vertices.map(v=>project(rotate(v.x,v.y,v.z)));
+
+  const faces = [
+    [0,1,2,3],[4,5,6,7],[0,1,5,4],
+    [2,3,7,6],[0,3,7,4],[1,2,6,5]
+  ];
+
+  ctx.fillStyle = c===selectedCube ? 'yellow' : c.color;
+  ctx.strokeStyle = '#000';
+  faces.forEach(f=>{
+    ctx.beginPath();
+    ctx.moveTo(proj[f[0]].x, proj[f[0]].y);
+    f.slice(1).forEach(i=>ctx.lineTo(proj[i].x, proj[i].y));
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
+// Draw grid
+function drawGrid(){
+  const gridCount = 20;
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  for(let i=-gridCount;i<=gridCount;i++){
+    const p1 = project(rotate(i*gridSize,0,-gridCount*gridSize));
+    const p2 = project(rotate(i*gridSize,0,gridCount*gridSize));
+    ctx.beginPath();
+    ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y);
+    ctx.stroke();
+
+    const p3 = project(rotate(-gridCount*gridSize,0,i*gridSize));
+    const p4 = project(rotate(gridCount*gridSize,0,i*gridSize));
+    ctx.beginPath();
+    ctx.moveTo(p3.x,p3.y); ctx.lineTo(p4.x,p4.y);
+    ctx.stroke();
+  }
+}
+
+// Render scene
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawGrid();
+  cubes.forEach(drawCube);
+  requestAnimationFrame(render);
+}
+render();
+
+// Get grid position
+function getGridPos(screenX, screenY) {
+  const gx = Math.round((screenX - canvas.width / 2) / gridSize) * gridSize;
+  const gz = Math.round((screenY - canvas.height / 2) / gridSize) * gridSize;
+  const column = cubes.filter(c => c.x === gx && c.z === gz);
+  const gy = column.length * gridSize;
+  return { x: gx, y: gy, z: gz };
+}
+
+// Controls
+canvas.addEventListener('mousedown', e=>{
+  if(e.button === 0){ // left
+    const pos = getGridPos(e.clientX, e.clientY);
+    const color = '#'+Math.floor(Math.random()*16777215).toString(16);
+    const cube = {x: pos.x, y: pos.y, z: pos.z, color};
+    cubes.push(cube);
+    selectedCube = cube;
+  }
+  else if(e.button === 2){ // right
+    isRotating = true;
+    lastMouse = {x:e.clientX, y:e.clientY};
+  }
+});
+
+canvas.addEventListener('mouseup', e=>{
+  if(e.button === 2){ isRotating = false; }
+});
+
+canvas.addEventListener('mousemove', e=>{
+  if(isRotating){
+    const dx = e.clientX - lastMouse.x;
+    const dy = e.clientY - lastMouse.y;
+    angleY += dx*0.01;
+    angleX += dy*0.01;
+    lastMouse={x:e.clientX, y:e.clientY};
+  }
+});
+
+// Disable context menu
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+
+// Zoom
+canvas.addEventListener('wheel', e=>{
+  cameraDist += e.deltaY*0.5;
+  if(cameraDist<100) cameraDist=100;
+  if(cameraDist>2000) cameraDist=2000;
+});
+
+// Undo last cube
+document.getElementById('undo').addEventListener('click', ()=>cubes.pop());
+
+// Delete selected cube
+document.getElementById('delete').addEventListener('click', ()=>{
+  if(selectedCube){
+    const index = cubes.indexOf(selectedCube);
+    if(index!==-1) cubes.splice(index,1);
+    selectedCube=null;
+  }
+});
+
+// Export
+document.getElementById('export').addEventListener('click', ()=>{
+  const data = cubes.map(c=>({x:c.x,y:c.y,z:c.z,color:c.color}));
+  const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download='cube_model.json';
+  link.click();
+});
+
+// Resize
+window.addEventListener('resize', ()=>{
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+});
+</script>
+</body>
+</html>
